@@ -108,13 +108,43 @@ st.markdown(f"""
       border:1px solid rgba(63,183,180,0.12); border-radius:8px;
       background:{THEME["surface"]}; box-shadow:0 4px 14px rgba(0,0,0,0.26);
   }}
+  /* ── Animaciones de entrada ────────────────────────────────────── */
+  @keyframes kpiUp {{
+      from {{ opacity:0; transform:translateY(22px) scale(0.96); }}
+      to   {{ opacity:1; transform:translateY(0)    scale(1);    }}
+  }}
+  @keyframes fadeIn {{
+      from {{ opacity:0; }}
+      to   {{ opacity:1; }}
+  }}
+  @keyframes slideLeft {{
+      from {{ opacity:0; transform:translateX(-14px); }}
+      to   {{ opacity:1; transform:translateX(0);     }}
+  }}
+
+  /* KPI cards — escalonadas de izquierda a derecha por columna */
+  .kpi-card {{ animation: kpiUp 0.5s cubic-bezier(0.22,1,0.36,1) both; }}
+  [data-testid="column"]:nth-child(1) .kpi-card {{ animation-delay: 0.00s; }}
+  [data-testid="column"]:nth-child(2) .kpi-card {{ animation-delay: 0.09s; }}
+  [data-testid="column"]:nth-child(3) .kpi-card {{ animation-delay: 0.18s; }}
+
+  /* Títulos de sección */
+  .section-title {{ animation: slideLeft 0.35s ease both; }}
+
+  /* Gráficos Plotly */
+  div[data-testid="stPlotlyChart"] {{ animation: fadeIn 0.55s ease 0.08s both; }}
+
+  /* Insight box y tablas */
+  .insight-box                    {{ animation: fadeIn 0.5s ease 0.18s both; }}
+  div[data-testid="stDataFrame"]  {{ animation: fadeIn 0.5s ease 0.12s both; }}
+
   /* Twemoji — limita tamaño de todos los emojis convertidos a SVG */
-  img.emoji {
+  img.emoji {{
       height: 1em !important;
       width: 1em !important;
       vertical-align: -0.12em;
       display: inline-block;
-  }
+  }}
   /* Sidebar nav — radio group styled as nav list */
   [data-testid="stSidebar"] .stRadio > div:first-child {{ display:none; }}
   [data-testid="stSidebar"] .stRadio [role="radiogroup"] {{
@@ -140,16 +170,22 @@ st.markdown(f"""
   }}
 </style>""", unsafe_allow_html=True)
 
-# Twemoji: convierte emojis de banderas en SVGs para que Chrome en Windows los muestre
+# Twemoji: convierte solo las banderas en los tabs (no toca el DOM de React)
 components.html("""
 <script src="https://cdn.jsdelivr.net/npm/twemoji@14.0.2/dist/twemoji.min.js" crossorigin="anonymous"></script>
 <script>
 (function () {
     var opts = { folder: "svg", ext: ".svg" };
-    function parse() { twemoji.parse(parent.document.body, opts); }
-    if (document.readyState === "complete") { parse(); }
-    else { window.addEventListener("load", parse); }
-    new MutationObserver(parse).observe(parent.document.body, { childList: true, subtree: true });
+    function parseTabsOnly() {
+        var tabList = parent.document.querySelector('[data-baseweb="tab-list"]');
+        if (tabList) twemoji.parse(tabList, opts);
+    }
+    // Varios intentos escalonados para capturar el render inicial de Streamlit
+    window.addEventListener("load", function () {
+        setTimeout(parseTabsOnly, 400);
+        setTimeout(parseTabsOnly, 1200);
+        setTimeout(parseTabsOnly, 2800);
+    });
 })();
 </script>
 """, height=0)
@@ -158,10 +194,10 @@ components.html("""
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def fmt_num(v):
     if pd.isna(v): return "—"
-    if abs(v) >= 1e12: return f"${v/1e12:.2f}T"
-    if abs(v) >= 1e9:  return f"${v/1e9:.2f}B"
-    if abs(v) >= 1e6:  return f"${v/1e6:.2f}M"
-    return f"{v:,.2f}"
+    if abs(v) >= 1e12: return f"US$ {v/1e12:.2f}T"
+    if abs(v) >= 1e9:  return f"US$ {v/1e9:.2f}B"
+    if abs(v) >= 1e6:  return f"US$ {v/1e6:.2f}M"
+    return f"US$ {v:,.2f}"
 
 def fmt_kpi(v, label):
     if pd.isna(v): return "—"
@@ -357,7 +393,7 @@ for tab, pais in zip(country_tabs, paises):
                 section_title("PIB nominal", f"{pais} · {anio_range[0]}–{anio_range[1]}")
                 x, y = get_series(df_pais, INDICATOR_KEYS["PIB"])
                 fig = trend_chart(x, y, pais, col_c)
-                fig.update_yaxes(tickprefix="$", tickformat=".2s")
+                fig.update_yaxes(tickprefix="US$ ", tickformat=".2s")
                 st.plotly_chart(fig, width="stretch")
 
             with c_r:
@@ -365,14 +401,14 @@ for tab, pais in zip(country_tabs, paises):
                 s = wide_pais.dropna(subset=["PIB per cápita"])
                 x2, y2 = s["fecha"].values.astype(float), s["PIB per cápita"].values.astype(float)
                 fig2 = trend_chart(x2, y2, pais, col_c)
-                fig2.update_yaxes(tickprefix="$", tickformat=",.0f")
+                fig2.update_yaxes(tickprefix="US$ ", tickformat=",.0f")
                 st.plotly_chart(fig2, width="stretch")
 
             section_title("Datos históricos", "PIB y PIB per cápita")
             cols_t = [c for c in ["PIB","PIB per cápita"] if c in wide_pais.columns]
             df_t = wide_pais[["fecha"]+cols_t].rename(columns={"fecha":"Año"}).sort_values("Año", ascending=False).head(20).copy()
             df_t["Año"] = df_t["Año"].astype(int)
-            for c in cols_t: df_t[c] = df_t[c].apply(lambda v: f"{v:.2f}" if pd.notna(v) else "—")
+            for c in cols_t: df_t[c] = df_t[c].apply(lambda v: fmt_num(v) if pd.notna(v) else "—")
             st.dataframe(df_t, width="stretch", hide_index=True, height=280)
 
 
@@ -541,10 +577,10 @@ for tab, pais in zip(country_tabs, paises):
                 fig_pc.add_trace(go.Scatter(
                     x=s["fecha"], y=s["PIB per cápita"], mode="lines", name=p,
                     line=dict(color=color_map[p], width=2.5),
-                    hovertemplate=f"<b>{p}</b> %{{x:.0f}}: $%{{y:,.0f}}<extra></extra>",
+                    hovertemplate=f"<b>{p}</b> %{{x:.0f}}: US$ %{{y:,.0f}}<extra></extra>",
                 ))
             base_layout(fig_pc, height=250)
-            fig_pc.update_yaxes(tickprefix="$", tickformat=",.0f")
+            fig_pc.update_yaxes(tickprefix="US$ ", tickformat=",.0f")
             st.plotly_chart(fig_pc, width="stretch")
 
             # Crecimiento PIB comparativo
@@ -605,6 +641,6 @@ for tab, pais in zip(country_tabs, paises):
                     else:
                         yr  = int(s["fecha"].max())
                         val = s[s["fecha"]==yr]["valor"].values[0]
-                        row_d[short] = f"{val:.2f}"
+                        row_d[short] = fmt_num(val) if short in ("PIB", "PIB per cápita") else f"{val:.2f}"
                 rows_t.append(row_d)
             st.dataframe(pd.DataFrame(rows_t), width="stretch", hide_index=True)
